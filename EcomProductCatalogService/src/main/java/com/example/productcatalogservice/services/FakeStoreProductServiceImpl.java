@@ -11,12 +11,14 @@ import org.springframework.web.client.RestTemplate;
 import java.util.ArrayList;
 import java.util.List;
 
-@Service("FakeStoreProductService")
-public class FakeStoreProductServiceImpl implements ProductService {
-    RestTemplate restTemplate;
-    RedisTemplate redisTemplate;
+@Service("fakeStoreProductService")
+//@Primary
+public class FakeStoreProductService implements ProductService {
+    private RestTemplate restTemplate;
+    private RedisTemplate redisTemplate;
 
-    FakeStoreProductServiceImpl(RestTemplate restTemplate, RedisTemplate redisTemplate) {
+    FakeStoreProductService(RestTemplate restTemplate,
+                            RedisTemplate redisTemplate) {
         this.restTemplate = restTemplate;
         this.redisTemplate = redisTemplate;
     }
@@ -26,50 +28,75 @@ public class FakeStoreProductServiceImpl implements ProductService {
         product.setId(fakeStoreProductDto.getId());
         product.setTitle(fakeStoreProductDto.getTitle());
         product.setDescription(fakeStoreProductDto.getDescription());
+        product.setImage(fakeStoreProductDto.getImage());
         product.setPrice(fakeStoreProductDto.getPrice());
 
-        Category category = new Category();
-        category.setTitle(fakeStoreProductDto.getCategory());
-        product.setCategory(category);
-
+//        Category category = new Category();
+//        category.setTitle(fakeStoreProductDto.getCategory());
+        //product.setCategory(category);
         return product;
     }
 
     @Override
-    public Product getProductById(Long id) {
+    public Product getProductById(Long id) throws InvalidProductIdException {
+        //Call the FakeStore API to get the product with given ID here.
 
-        // Check in Redis Cache first
+        System.out.println("Got the request in Product Service");
 
-        // Here key is the map name in Redis
-        // hashKey is the key in the map PRODUCTS in Redis
-        Product product = (Product) redisTemplate.opsForHash().get("PRODUCTS", "PRODUCTS_" + id);
+         Product product = (Product) redisTemplate.opsForHash().get("PRODUCTS", "PRODUCT_" + id);
 
         if (product != null) {
             // Cache Hit
             return product;
         }
 
-        // Call the FakeStoreAPI to get the product with given ID here.
-        FakeStoreProductDto fakeStoreProductDto = restTemplate.getForObject("https://fakestoreapi.com/products/" + id, FakeStoreProductDto.class);
+        FakeStoreProductDto fakeStoreProductDto =
+                restTemplate.getForObject("https://fakestoreapi.com/products/" + id, FakeStoreProductDto.class);
 
         if (fakeStoreProductDto == null) {
-            return null;
+            throw new InvalidProductIdException(id, "Invalid productId passed");
         }
 
-        // Convert FakeStoreProductDto to product object.
         product = convertFakeStoreProductDtoToProduct(fakeStoreProductDto);
 
-        // Here key - PRODUCTS is the map name in Redis
-        // hashKey is the key in the map PRODUCTS in Redis
-        redisTemplate.opsForHash().put("PRODUCTS", "PRODUCTS_" + id, product);
+        redisTemplate.opsForHash().put("PRODUCTS", "PRODUCT_" + id, product);
 
-        // Convert FakeStoreProductDto to product object.
+        //Convert fakeStoreProductDto to product object.
         return product;
+        //throw new RuntimeException("Something went wrong in FakeStoreProductService");
     }
 
     @Override
-    public Page<Product> getAllProducts(int pageNumber, int pageSize, String sort) {
+    public Page<Product> getAllProducts(int pageNumber, int pageSize, String sortDir) {
+        FakeStoreProductDto[] fakeStoreProductDtos =
+                restTemplate.getForObject("https://fakestoreapi.com/products/",
+                        FakeStoreProductDto[].class);
+        List<Product> products = new ArrayList<>();
+        for (FakeStoreProductDto fakeStoreProductDto : fakeStoreProductDtos) {
+            products.add(convertFakeStoreProductDtoToProduct(fakeStoreProductDto));
+        }
+
+        return new PageImpl<>(products);
+    }
+
+    @Override
+    public Product updateProduct(Long id, Product product) {
         return null;
+    }
+
+    @Override
+    public Product replaceProduct(Long id, Product product) {
+        //PUT Method
+        //Replace the product with given id with the input product
+        //and return the updated product in the output.
+
+        RequestCallback requestCallback = restTemplate.httpEntityCallback(product, FakeStoreProductDto.class);
+        HttpMessageConverterExtractor<FakeStoreProductDto> responseExtractor = new HttpMessageConverterExtractor(FakeStoreProductDto.class,
+                restTemplate.getMessageConverters());
+        FakeStoreProductDto fakeStoreProductDto =
+                restTemplate.execute("https://fakestoreapi.com/products/" + id, HttpMethod.PUT, requestCallback, responseExtractor);
+
+        return convertFakeStoreProductDtoToProduct(fakeStoreProductDto);
     }
 
     @Override
@@ -78,17 +105,7 @@ public class FakeStoreProductServiceImpl implements ProductService {
     }
 
     @Override
-    public Product updateProduct() {
-        return null;
-    }
+    public void deleteProduct() {
 
-    @Override
-    public Product replaceProduct(Product product) {
-        return null;
-    }
-
-    @Override
-    public boolean deleteProduct(Long id) {
-        return true;
     }
 }
